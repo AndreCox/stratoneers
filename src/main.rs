@@ -1,120 +1,103 @@
-use std::error::Error;
-use std::io::{stdout, Write};
-use std::thread::sleep;
-use std::time::Instant;
+// import macros from paris
+use paris::{error, info, success, warn};
+use rayon::prelude::*;
+use std::{
+    io::{BufReader, Read},
+    sync::{Arc, Mutex},
+};
 
-use clap::Parser;
-use humantime::format_duration;
+// import modules
+mod disks;
 
-mod config;
-mod detector;
+// include the assets/audio folder in the binary
+// do this with include_bytes! macro
+// this will include the audio files in the binary
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "freebsd")))]
-use crate::config::AllocationMode;
+// links to audio files
+const AUDIO_FILES: [&str; 2] = [
+    "/home/andre/stratoneers/assets/audio/hello.wav",
+    "/home/andre/stratoneers/assets/audio/isAnyoneThere.wav",
+];
+const BLOCK_DEVICES: [&str; 3] = ["/dev/sda", "/dev/sdb", "/dev/sdc"];
 
-use crate::{config::Cli, detector::Detector};
+fn main() {
+    // ascii art banner saying stratonlseers
+    let banner = r#"
+                ____  _             _                                    ____          _      
+               / ___|| |_ _ __ __ _| |_ ___  _ __   ___  ___ _ __ ___   / ___|___   __| | ___ 
+               \___ \| __| '__/ _` | __/ _ \| '_ \ / _ \/ _ \ '__/ __| | |   / _ \ / _` |/ _ \
+                ___) | |_| | | (_| | || (_) | | | |  __/  __/ |  \__ \ | |__| (_) | (_| |  __/
+               |____/ \__|_|  \__,_|\__\___/|_| |_|\___|\___|_|  |___/  \____\___/ \__,_|\___|
+     _____               __                       __      ______             _______           __             
+    |     \.-----.-----.|__|.-----.-----.-----.--|  |    |   __ \.--.--.    |   _   |.-----.--|  |.----.-----.
+    |  --  |  -__|__ --||  ||  _  |     |  -__|  _  |    |   __ <|  |  |    |       ||     |  _  ||   _|  -__|
+    |_____/|_____|_____||__||___  |__|__|_____|_____|    |______/|___  |    |___|___||__|__|_____||__| |_____|
+                            |_____|                              |_____|                                      
+    "#;
+    println!("{}", banner);
+    info!("Starting up...");
+    // play audio files
+    info!("Hello?");
+    play_audio(0);
+    info!("Is anyone there?");
+    play_audio(1);
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let conf = Cli::parse();
-
-    let verbose: bool = conf.verbose;
-    let sleep_duration = conf.delay;
-
-    if verbose {
-        println!("\n------------ Runtime settings ------------");
-        println!(
-            "Using {} as detector",
-            match conf.memory_to_monitor {
-                Some(s) => format!("{} bytes", s.get()),
-                #[cfg(all(not(target_os = "windows"), not(target_os = "freebsd")))]
-                None => match conf.use_all.expect("this only happens if -m wasn't specified, and either -m or --use-all must be specified at the CLI level") {
-                    AllocationMode::Available => "as much memory as possible",
-                    AllocationMode::Free => "all unused memory",
-                }
-                .to_owned(),
-                #[cfg(any(target_os = "windows", target_os = "freebsd"))]
-                None => "as much memory as possible".to_owned(),
-            }
-        );
-
-        println!(
-            "Waiting {} between integrity checks",
-            format_duration(sleep_duration)
-        );
-
-        println!("------------------------------------------\n");
-
-        print!("Allocating detector memory...");
-        stdout().flush()?;
-    }
-
-    // Instead of building a detector out of scintillators and photo-multiplier tubes,
-    // we just allocate some memory on this here computer.
-    let mut detector = match conf.memory_to_monitor {
-        Some(s) => Detector::new(0, s.get()),
-        #[cfg(any(target_os = "windows", target_os = "freebsd"))]
-        None => Detector::new_with_maximum_size(0),
-        #[cfg(all(not(target_os = "windows"), not(target_os = "freebsd")))]
-        None => Detector::new_with_maximum_size_in_mode(0, conf.use_all.expect("this only happens if -m wasn't specified, and either -m or --use-all must be specified at the CLI level")),
-    };
-    // Less exciting, much less accurate and sensitive, but much cheaper
-
-    if verbose {
-        print!(" done");
-        if conf.memory_to_monitor.is_none() {
-            print!(" with allocation of {} bytes", detector.capacity());
+    // first check if the block devices are mounted, they shouldn't be
+    // if they are, exit as they may be used by the os
+    info!("Checking if block devices are mounted...");
+    // read the mount file if it fails, exit with error
+    let mount_file = std::fs::read_to_string("/proc/mounts").unwrap_or_else(|_| {
+        error!("Could not read mount file!");
+        error!("Probably Permission error");
+        error!("Exiting...");
+        std::process::exit(1);
+    });
+    // see if the block devices appear in the mount file
+    for device in BLOCK_DEVICES.iter() {
+        if mount_file.contains(device) {
+            error!("Block device {} is mounted!", device);
+            error!("Exiting...");
+            std::process::exit(1);
         }
-        println!("\nBeginning detection loop");
     }
 
-    let mut checks: u64 = 1;
-    let mut memory_is_intact: bool;
-    let start: Instant = Instant::now();
+    // create a vector of disks in a arc mutex
+    // this will be used to store the disks
+    let mut disks = Vec::new();
+    for device in BLOCK_DEVICES.iter() {
+        disks.push(Arc::new(Mutex::new(disks::Disk::new(device.to_string()))));
+    }
+
+    // create a thread that will print the number of bit flips every 5 seconds
+    // this thread will run in the background
+    let mut total_bit_flip_count = 0;
+
+    let mut bit_flip_count_thread = std::thread::spawn(move || loop {
+        // get the bit flips from each disk which is stored in a public variable on the disk struct
+
+        let mut bit_flip_count = 0;
+        for disk in disks.iter() {
+            bit_flip_count += disk.lock().unwrap().bit_flips;
+        }
+
+        info!("Bit flips: {}", total_bit_flip_count);
+
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    });
+
+    success!("Started bit flip count thread!");
+
     loop {
-        // Reset detector!
-        if verbose {
-            print!("Zeroing detector memory... ");
-            stdout().flush()?;
-        }
-        detector.reset();
-        memory_is_intact = true;
-
-        // Some feedback for the user that the program is still running
-        if verbose {
-            println!("done");
-            print!("Waiting for first check");
-            stdout().flush()?;
-        }
-
-        while memory_is_intact {
-            // We're not gonna miss any events by being too slow
-            sleep(sleep_duration);
-            // Check if all the bytes are still zero
-            memory_is_intact = detector.is_intact();
-            if verbose && memory_is_intact {
-                print!("\rIntegrity checks passed: {}", checks);
-                stdout().flush()?;
-            }
-            checks += 1;
-        }
-
-        println!(
-            "\nDetected a bitflip after {:?} on integrity check number {}",
-            start.elapsed(),
-            checks
-        );
-
-        match detector.position_of_changed_element() {
-            Some(index) => println!(
-                "Bit flip in byte at index {}, it became {}",
-                index,
-                detector
-                    .get(index)
-                    .expect("already found the index of the value in the detector earlier"),
-            ),
-            None => println!(
-                "The same bit flipped back before we could find which one it was! Incredible!"
-            ),
-        }
+        info!("Doing other things");
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
+}
+
+fn play_audio(index: usize) {
+    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+    let file = std::fs::File::open(AUDIO_FILES[index]).unwrap();
+    let sink = rodio::Sink::try_new(&handle).unwrap();
+    sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
+    sink.set_volume(1.0);
+    sink.sleep_until_end();
 }
