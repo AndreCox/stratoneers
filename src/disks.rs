@@ -1,14 +1,10 @@
-use packed_simd::u8x32;
-use paris::{error, info, success};
-use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use simplelog::{error, info};
 use std::{
     io::{BufReader, Read, Seek},
-    simd::{u64x8, u8x64},
+    simd::u8x64,
 };
-
 // Import the lazy_static macro
 use lazy_static::lazy_static;
-use packed_simd::u64x4;
 
 // Create a lookup table for counting bits quickly
 lazy_static! {
@@ -111,7 +107,10 @@ impl Disk {
                             // we also want to store the exact location of the bit flip so we can print it later we will store this location as a hex string
                             let hex_string =
                                 format!("{:x}", current_position + (i * 64) as u64 + j as u64);
-                            success!("Bit flip found at {} on {}", hex_string, self.device);
+                            info!(
+                                "<b><green>Bit flip found at {} on {}</></b>",
+                                hex_string, self.device
+                            );
                             bitflip_locations.push(hex_string);
                         }
                     }

@@ -1,10 +1,11 @@
 #![feature(portable_simd)]
 // import macros from paris
-use paris::{error, info, success, warn};
+use simplelog::*;
+use simplelog::{info, warn};
 use std::{
-    io::{BufReader, Read},
+    fs::File,
+    io::BufReader,
     sync::{Arc, Mutex},
-    thread,
     time::Duration,
 };
 
@@ -38,12 +39,48 @@ async fn main() {
                             |_____|                              |_____|                                      
     "#;
     println!("{}", banner);
+
+    // scan for an existing log file
+    // if it exists we check the number on the end and increment it
+    // if it doesn't exist we create it
+    let mut log_file_number = 0;
+    loop {
+        if std::path::Path::new(&format!("stratoneers_code_{}.log", log_file_number)).exists() {
+            log_file_number += 1;
+        } else {
+            break;
+        }
+    }
+
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            File::create(format!("./stratoneers_code_{}.log", log_file_number)).unwrap(),
+        ),
+    ])
+    .unwrap();
+
     info!("Starting up...");
     // play audio files
     info!("Hello?");
     play_audio(0);
     info!("Is anyone there?");
     play_audio(1);
+
+    // check for simd support
+    if is_x86_feature_detected!("sse3") {
+        info!("<b><green>SIMD detected!</></b>");
+    } else {
+        warn!("<b>SIMD not detected!</b>");
+        warn!("This program will run very slowly!");
+    }
 
     // first check if the block devices are mounted, they shouldn't be
     // if they are, exit as they may be used by the os
@@ -81,9 +118,11 @@ async fn main() {
         }));
     }
 
-    success!("Started all threads!");
+    info!("<b><green>Started all threads!</></b>");
 
     loop {
+        // sleep here to avoid busy-waiting
+        // since we are using tokio, this won't block other tasks
         tokio::time::sleep(Duration::from_secs(100)).await;
     }
 

@@ -9,15 +9,16 @@ bit-set = "0.5.3"
 chrono = "0.4.26"
 indicatif = "0.17.6"
 lazy_static = "1.4.0"
+log = "0.4.19"
 packed_simd = "0.3.9"
 rayon = "1.7.0"
 rodio = "0.17.1"
 
-[dependencies.paris]
-version = "1.5.15"
-features = ["timestamps", "macros"]
-
 [dependencies.tokio]
 version = "1.29.1"
 features = ["full"]
+
+[dependencies.simplelog]
+version = "0.12.1"
+features = ["paris"]
 

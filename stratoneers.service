@@ -1,0 +1,13 @@
+[Unit]
+Description=This should be used to run the stratoneers code on startup. It should be placed in /etc/systemd/system/stratoneers.service
+
+[Service]
+Type=simple
+User=andre
+WorkingDirectory=/home/andre/stratoneers
+ExecStart=/home/andre/stratoneers/target/release/stratoneers
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
