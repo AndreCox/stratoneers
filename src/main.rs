@@ -1,9 +1,11 @@
+#![feature(portable_simd)]
 // import macros from paris
 use paris::{error, info, success, warn};
-use rayon::prelude::*;
 use std::{
     io::{BufReader, Read},
     sync::{Arc, Mutex},
+    thread,
+    time::Duration,
 };
 
 // import modules
@@ -18,9 +20,10 @@ const AUDIO_FILES: [&str; 2] = [
     "/home/andre/stratoneers/assets/audio/hello.wav",
     "/home/andre/stratoneers/assets/audio/isAnyoneThere.wav",
 ];
-const BLOCK_DEVICES: [&str; 3] = ["/dev/sda", "/dev/sdb", "/dev/sdc"];
+const BLOCK_DEVICES: [&str; 4] = ["/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd"];
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // ascii art banner saying stratonlseers
     let banner = r#"
                 ____  _             _                                    ____          _      
@@ -61,36 +64,30 @@ fn main() {
         }
     }
 
-    // create a vector of disks in a arc mutex
-    // this will be used to store the disks
+    // Create a vector of disks in an Arc<Mutex>
     let mut disks = Vec::new();
     for device in BLOCK_DEVICES.iter() {
+        info!("Creating disk for {}", device);
         disks.push(Arc::new(Mutex::new(disks::Disk::new(device.to_string()))));
     }
 
-    // create a thread that will print the number of bit flips every 5 seconds
-    // this thread will run in the background
-    let mut total_bit_flip_count = 0;
+    // create tokio tasks for each disk to get_bit_flips
+    let mut tasks = Vec::new();
+    for disk in disks.iter() {
+        let disk = disk.clone();
+        tasks.push(tokio::spawn(async move {
+            // get the bit flips
+            let _bit_flips = disk.lock().unwrap().get_bit_flips();
+        }));
+    }
 
-    let mut bit_flip_count_thread = std::thread::spawn(move || loop {
-        // get the bit flips from each disk which is stored in a public variable on the disk struct
-
-        let mut bit_flip_count = 0;
-        for disk in disks.iter() {
-            bit_flip_count += disk.lock().unwrap().bit_flips;
-        }
-
-        info!("Bit flips: {}", total_bit_flip_count);
-
-        std::thread::sleep(std::time::Duration::from_secs(5));
-    });
-
-    success!("Started bit flip count thread!");
+    success!("Started all threads!");
 
     loop {
-        info!("Doing other things");
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_secs(100)).await;
     }
+
+    // Add a delay to avoid busy-waiting (adjust the duration as needed)
 }
 
 fn play_audio(index: usize) {
